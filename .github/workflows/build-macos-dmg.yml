@@ -53,6 +53,8 @@ jobs:
           chmod +x scripts/bootstrap_and_build_macos.sh scripts/build_macos.sh scripts/package_dmg_macos.sh
           # JUCE generates C helper targets; enable both C and C++ in the project.
           sed -i '' 's/LANGUAGES CXX/LANGUAGES C CXX/' CMakeLists.txt
+          # The project includes JuceHeader.h, so ask JUCE to generate it.
+          printf '\njuce_generate_juce_header(Prophet6Control)\n' >> CMakeLists.txt
           ./scripts/bootstrap_and_build_macos.sh
 
       - name: Verify disk image

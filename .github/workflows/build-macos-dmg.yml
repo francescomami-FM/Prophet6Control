@@ -55,6 +55,26 @@ jobs:
           sed -i '' 's/LANGUAGES CXX/LANGUAGES C CXX/' CMakeLists.txt
           # The project includes JuceHeader.h, so ask JUCE to generate it.
           printf '\njuce_generate_juce_header(Prophet6Control)\n' >> CMakeLists.txt
+          # JUCE 9 Base64 decoding writes to an OutputStream, not a MemoryBlock.
+          python3 - <<'PY'
+          from pathlib import Path
+          source = Path("Source/PluginProcessor.cpp")
+          text = source.read_text()
+          old = """        juce::MemoryBlock decoded;
+                  if (encoded.isEmpty() || !juce::Base64::convertFromBase64(decoded, encoded))
+                      return false;
+                  const auto* begin = static_cast<const std::uint8_t*>(decoded.getData());
+                  result.assign(begin, begin + decoded.getSize());"""
+          new = """        juce::MemoryOutputStream decoded;
+                  if (encoded.isEmpty() || !juce::Base64::convertFromBase64(decoded, encoded))
+                      return false;
+                  const auto decodedBlock = decoded.getMemoryBlock();
+                  const auto* begin = static_cast<const std::uint8_t*>(decodedBlock.getData());
+                  result.assign(begin, begin + decodedBlock.getSize());"""
+          if old not in text:
+              raise SystemExit("Expected JUCE Base64 decode block was not found")
+          source.write_text(text.replace(old, new, 1))
+          PY
           ./scripts/bootstrap_and_build_macos.sh
 
       - name: Verify disk image

@@ -1,0 +1,69 @@
+name: Build macOS DMG
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "Prophet6Control_v0_2_1_source_macos_installer.zip"
+      - ".github/workflows/build-macos-dmg.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prophet6control-macos-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build AU, VST3 and DMG
+    runs-on: macos-15
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          xcode-select -p
+          clang --version
+          cmake --version
+
+      - name: Extract project source
+        run: |
+          mkdir -p "$RUNNER_TEMP/p6-source"
+          unzip -q Prophet6Control_v0_2_1_source_macos_installer.zip -d "$RUNNER_TEMP/p6-source"
+          test -f "$RUNNER_TEMP/p6-source/Prophet6Control/CMakeLists.txt"
+          echo "PROJECT_ROOT=$RUNNER_TEMP/p6-source/Prophet6Control" >> "$GITHUB_ENV"
+
+      - name: Run protocol tests
+        run: |
+          cd "$PROJECT_ROOT"
+          chmod +x scripts/test_protocols.sh
+          ./scripts/test_protocols.sh
+
+      - name: Build plug-ins and create DMG
+        env:
+          JUCE_TAG: "9.0.5"
+          CMAKE_OSX_ARCHITECTURES: "arm64"
+          VERSION: "0.2.1"
+        run: |
+          cd "$PROJECT_ROOT"
+          chmod +x scripts/bootstrap_and_build_macos.sh scripts/build_macos.sh scripts/package_dmg_macos.sh
+          ./scripts/bootstrap_and_build_macos.sh
+
+      - name: Verify disk image
+        run: |
+          test -s "$PROJECT_ROOT/dist/Prophet-6-Control-v0.2.1.dmg"
+          hdiutil verify "$PROJECT_ROOT/dist/Prophet-6-Control-v0.2.1.dmg"
+          ls -lh "$PROJECT_ROOT/dist/Prophet-6-Control-v0.2.1.dmg"
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Prophet6Control-macOS-DMG
+          path: ${{ env.PROJECT_ROOT }}/dist/Prophet-6-Control-v0.2.1.dmg
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30

@@ -51,6 +51,8 @@ jobs:
         run: |
           cd "$PROJECT_ROOT"
           chmod +x scripts/bootstrap_and_build_macos.sh scripts/build_macos.sh scripts/package_dmg_macos.sh
+          # JUCE generates C helper targets; enable both C and C++ in the project.
+          sed -i '' 's/LANGUAGES CXX/LANGUAGES C CXX/' CMakeLists.txt
           ./scripts/bootstrap_and_build_macos.sh
 
       - name: Verify disk image

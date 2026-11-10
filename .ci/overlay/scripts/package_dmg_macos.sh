@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="${BUILD_DIR:-$ROOT/build}"
 VERSION="${VERSION:-0.2.2}"
 ARTIFACTS="$BUILD_DIR/Prophet6Control_artefacts/Release"

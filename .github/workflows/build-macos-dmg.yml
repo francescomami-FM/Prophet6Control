@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - "Prophet6Control_v0_2_1_source_macos_installer.zip"
+      - ".ci/overlay/**"
       - ".github/workflows/build-macos-dmg.yml"
 
 permissions:
@@ -16,45 +17,55 @@ concurrency:
 
 jobs:
   build:
-    name: Build AU, VST3 and DMG
+    name: Stress test, build AU and create DMG
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Select Xcode
+      - name: Select and report Apple build toolchain
         run: |
           xcode-select -p
           clang --version
           cmake --version
+          hdiutil version
 
-      - name: Extract project source
+      - name: Extract source package
         run: |
           mkdir -p "$RUNNER_TEMP/p6-source"
           unzip -q Prophet6Control_v0_2_1_source_macos_installer.zip -d "$RUNNER_TEMP/p6-source"
           test -f "$RUNNER_TEMP/p6-source/Prophet6Control/CMakeLists.txt"
           echo "PROJECT_ROOT=$RUNNER_TEMP/p6-source/Prophet6Control" >> "$GITHUB_ENV"
 
-      - name: Run protocol tests
+      - name: Apply versioned CI source overlay
         run: |
-          cd "$PROJECT_ROOT"
-          chmod +x scripts/test_protocols.sh
-          ./scripts/test_protocols.sh
+          cp .ci/overlay/CMakeLists.txt "$PROJECT_ROOT/CMakeLists.txt"
+          cp .ci/overlay/Source/ProtocolCore.cpp "$PROJECT_ROOT/Source/ProtocolCore.cpp"
+          cp .ci/overlay/Tests/CMakeLists.txt "$PROJECT_ROOT/Tests/CMakeLists.txt"
+          cp .ci/overlay/Tests/protocol_stress_tests.cpp "$PROJECT_ROOT/Tests/protocol_stress_tests.cpp"
+          cp .ci/overlay/scripts/package_dmg_macos.sh "$PROJECT_ROOT/scripts/package_dmg_macos.sh"
+          chmod +x "$PROJECT_ROOT/scripts/package_dmg_macos.sh"
 
-      - name: Build plug-ins and create DMG
+      - name: Build protocol tests with sanitizers
+        run: |
+          cmake -S "$PROJECT_ROOT/Tests" -B "$RUNNER_TEMP/p6-protocol-tests" \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DP6_ENABLE_SANITIZERS=ON
+          cmake --build "$RUNNER_TEMP/p6-protocol-tests" --parallel 2
+          ASAN_OPTIONS=detect_leaks=1:strict_string_checks=1 \
+          UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
+            ctest --test-dir "$RUNNER_TEMP/p6-protocol-tests" --output-on-failure
+
+      - name: Build AU, VST3 and standalone and create HFS+ DMG
         env:
           JUCE_TAG: "9.0.5"
           CMAKE_OSX_ARCHITECTURES: "arm64"
-          VERSION: "0.2.1"
+          VERSION: "0.2.2"
         run: |
           cd "$PROJECT_ROOT"
           chmod +x scripts/bootstrap_and_build_macos.sh scripts/build_macos.sh scripts/package_dmg_macos.sh
-          # JUCE generates C helper targets; enable both C and C++ in the project.
-          sed -i '' 's/LANGUAGES CXX/LANGUAGES C CXX/' CMakeLists.txt
-          # The project includes JuceHeader.h, so ask JUCE to generate it.
-          printf '\njuce_generate_juce_header(Prophet6Control)\n' >> CMakeLists.txt
           # JUCE 9 Base64 decoding writes to an OutputStream, not a MemoryBlock.
           python3 - <<'PY'
           from pathlib import Path
@@ -77,23 +88,36 @@ jobs:
           PY
           ./scripts/bootstrap_and_build_macos.sh
 
-      - name: Verify disk image
+      - name: Verify AU, VST3 and standalone bundles
         run: |
-          test -s "$PROJECT_ROOT/dist/Prophet-6-Control-v0.2.1.dmg"
-          hdiutil verify "$PROJECT_ROOT/dist/Prophet-6-Control-v0.2.1.dmg"
+          ARTIFACTS="$PROJECT_ROOT/build/Prophet6Control_artefacts/Release"
+          test -d "$ARTIFACTS/AU/Prophet 6 Control.component"
+          test -d "$ARTIFACTS/VST3/Prophet 6 Control.vst3"
+          test -d "$ARTIFACTS/Standalone/Prophet 6 Control.app"
+          file "$ARTIFACTS/AU/Prophet 6 Control.component/Contents/MacOS/Prophet 6 Control"
+          lipo -info "$ARTIFACTS/AU/Prophet 6 Control.component/Contents/MacOS/Prophet 6 Control"
+
+      - name: Verify DMG checksum and mount contents
+        run: |
+          DMG="$PROJECT_ROOT/dist/Prophet-6-Control-v0.2.2.dmg"
+          test -s "$DMG"
+          hdiutil verify "$DMG"
           MOUNT_POINT="$(mktemp -d)"
-          hdiutil attach -readonly -nobrowse -mountpoint "$MOUNT_POINT" "$PROJECT_ROOT/dist/Prophet-6-Control-v0.2.1.dmg"
+          hdiutil attach -readonly -nobrowse -mountpoint "$MOUNT_POINT" "$DMG"
           test -d "$MOUNT_POINT/Audio Units/Prophet 6 Control.component"
-          test -f "$MOUNT_POINT/Install.command"
+          test -d "$MOUNT_POINT/VST3/Prophet 6 Control.vst3"
+          test -d "$MOUNT_POINT/Applications/Prophet 6 Control.app"
+          test -x "$MOUNT_POINT/Install.command"
+          find "$MOUNT_POINT" -maxdepth 3 -print
           hdiutil detach "$MOUNT_POINT"
           rmdir "$MOUNT_POINT"
-          ls -lh "$PROJECT_ROOT/dist/Prophet-6-Control-v0.2.1.dmg"
+          ls -lh "$DMG"
 
-      - name: Upload DMG artifact
+      - name: Upload verified DMG artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Prophet6Control-macOS-DMG
-          path: ${{ env.PROJECT_ROOT }}/dist/Prophet-6-Control-v0.2.1.dmg
+          name: Prophet6Control-macOS-DMG-v0.2.2
+          path: ${{ env.PROJECT_ROOT }}/dist/Prophet-6-Control-v0.2.2.dmg
           if-no-files-found: error
           compression-level: 0
           retention-days: 30

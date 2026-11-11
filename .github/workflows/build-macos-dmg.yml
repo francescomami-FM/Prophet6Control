@@ -30,7 +30,7 @@ jobs:
           xcode-select -p
           clang --version
           cmake --version
-          hdiutil version
+          hdiutil help >/dev/null
 
       - name: Extract source package
         run: |

@@ -86,6 +86,15 @@ jobs:
           PY
           ./scripts/bootstrap_and_build_macos.sh
 
+      - name: Upload build candidate for installation testing
+        uses: actions/upload-artifact@v4
+        with:
+          name: Prophet6Control-macOS-DMG-v0.2.3-candidate
+          path: ${{ env.PROJECT_ROOT }}/dist/Prophet-6-Control-v0.2.3.dmg
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
       - name: Verify all three bundles and their arm64 executables
         run: |
           ARTIFACTS="$PROJECT_ROOT/build/Prophet6Control_artefacts/Release"

@@ -96,7 +96,7 @@ jobs:
             test -f "$bundle/Contents/Info.plist"
             test -f "$executable"
             plutil -lint "$bundle/Contents/Info.plist"
-            lipo -verify_arch arm64 "$executable"
+            lipo "$executable" -verify_arch arm64
             codesign --verify --deep --strict --verbose=2 "$bundle"
             file "$executable"
           }

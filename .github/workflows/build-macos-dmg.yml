@@ -97,7 +97,7 @@ jobs:
 
       - name: Verify all three bundles and their arm64 executables
         run: |
-          ARTIFACTS="$PROJECT_ROOT/build/Prophet6Control_artefacts/Release"
+          ARTIFACTS="$PROJECT_ROOT/dist/Prophet 6 Control Installer"
           check_bundle() {
             bundle="$1"
             executable="$2"
@@ -109,13 +109,13 @@ jobs:
             codesign --verify --deep --strict --verbose=2 "$bundle"
             file "$executable"
           }
-          check_bundle "$ARTIFACTS/AU/Prophet 6 Control.component" "$ARTIFACTS/AU/Prophet 6 Control.component/Contents/MacOS/Prophet 6 Control"
+          check_bundle "$ARTIFACTS/Audio Units/Prophet 6 Control.component" "$ARTIFACTS/Audio Units/Prophet 6 Control.component/Contents/MacOS/Prophet 6 Control"
           check_bundle "$ARTIFACTS/VST3/Prophet 6 Control.vst3" "$ARTIFACTS/VST3/Prophet 6 Control.vst3/Contents/MacOS/Prophet 6 Control"
-          check_bundle "$ARTIFACTS/Standalone/Prophet 6 Control.app" "$ARTIFACTS/Standalone/Prophet 6 Control.app/Contents/MacOS/Prophet 6 Control"
+          check_bundle "$ARTIFACTS/Applications/Prophet 6 Control.app" "$ARTIFACTS/Applications/Prophet 6 Control.app/Contents/MacOS/Prophet 6 Control"
 
       - name: Validate Audio Unit with Apple's auval
         run: |
-          AU_SOURCE="$PROJECT_ROOT/build/Prophet6Control_artefacts/Release/AU/Prophet 6 Control.component"
+          AU_SOURCE="$PROJECT_ROOT/dist/Prophet 6 Control Installer/Audio Units/Prophet 6 Control.component"
           AU_DEST="$HOME/Library/Audio/Plug-Ins/Components/Prophet 6 Control.component"
           mkdir -p "$HOME/Library/Audio/Plug-Ins/Components"
           rm -rf "$AU_DEST"

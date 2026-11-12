@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(Prophet6Control VERSION 0.2.2 LANGUAGES C CXX)
+project(Prophet6Control VERSION 0.2.3 LANGUAGES C CXX)
 
 if(NOT DEFINED JUCE_DIR OR NOT EXISTS "${JUCE_DIR}/CMakeLists.txt")
     message(FATAL_ERROR "Set JUCE_DIR to a JUCE source checkout. Protocol tests can be built separately from Tests/.")

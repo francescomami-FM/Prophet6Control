@@ -348,11 +348,14 @@ namespace
         void resized() override
         {
             const std::vector<int> widths { 340, 490, 440 };
-            auto x = juce::jmax(12, (getWidth() - 1294) / 2);
+            const auto total = 1294;
+            const auto scale = juce::jmin(1.0, static_cast<double>(getWidth() - 24) / total);
+            auto x = juce::jmax(12, (getWidth() - static_cast<int>(total * scale)) / 2);
             for (std::size_t i = 0; i < groups.size(); ++i)
             {
-                groups[i]->setBounds(x, 42, widths[i], 230);
-                x += widths[i] + 12;
+                const auto width = static_cast<int>(widths[i] * scale);
+                groups[i]->setBounds(x, 42, width, 230);
+                x += width + static_cast<int>(12 * scale);
             }
         }
 
@@ -515,7 +518,7 @@ void Prophet6ControlAudioProcessorEditor::resized()
     statusLabel.setBounds(area.removeFromBottom(20));
     viewport.setBounds(area);
     auto* viewed = globalsMode ? globalSurface.get() : mainSurface.get();
-    viewed->setSize(juce::jmax(viewport.getWidth(), 1480), globalsMode ? 340 : 710);
+    viewed->setSize(juce::jmax(1, viewport.getWidth()), globalsMode ? 340 : 710);
     viewport.setViewedComponent(viewed, false);
 }
 

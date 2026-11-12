@@ -31,7 +31,6 @@ jobs:
           clang --version
           cmake --version
           hdiutil help >/dev/null
-          codesign --version
 
       - name: Extract source package
         run: |

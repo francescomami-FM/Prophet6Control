@@ -1,0 +1,28 @@
+name: Export UI source workspace
+
+on:
+  push:
+    branches:
+      - "ui/prophet6-single-page"
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract source archive
+        run: |
+          mkdir -p /tmp/p6-source
+          unzip -q Prophet6Control_v0_2_1_source_macos_installer.zip -d /tmp/p6-source
+          test -d /tmp/p6-source/Prophet6Control
+          find /tmp/p6-source/Prophet6Control -maxdepth 3 -type f | sort
+      - name: Upload extracted source
+        uses: actions/upload-artifact@v4
+        with:
+          name: Prophet6Control-ui-source-workspace
+          path: /tmp/p6-source/Prophet6Control/
+          if-no-files-found: error
+          retention-days: 7

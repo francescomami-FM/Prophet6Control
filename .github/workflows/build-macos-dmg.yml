@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: prophet6control-v0-2-3-macos15
+  group: prophet6control-v0-2-4-macos15
   cancel-in-progress: false
 
 jobs:
@@ -43,6 +43,8 @@ jobs:
         run: |
           cp .ci/overlay/CMakeLists.txt "$PROJECT_ROOT/CMakeLists.txt"
           cp .ci/overlay/Source/ProtocolCore.cpp "$PROJECT_ROOT/Source/ProtocolCore.cpp"
+          cp .ci/overlay/Source/PluginEditor.cpp "$PROJECT_ROOT/Source/PluginEditor.cpp"
+          cp .ci/overlay/Source/PluginEditor.h "$PROJECT_ROOT/Source/PluginEditor.h"
           cp .ci/overlay/Tests/CMakeLists.txt "$PROJECT_ROOT/Tests/CMakeLists.txt"
           cp .ci/overlay/Tests/protocol_stress_tests.cpp "$PROJECT_ROOT/Tests/protocol_stress_tests.cpp"
           cp .ci/overlay/scripts/package_dmg_macos.sh "$PROJECT_ROOT/scripts/package_dmg_macos.sh"
@@ -60,7 +62,7 @@ jobs:
           JUCE_TAG: "9.0.5"
           CMAKE_OSX_ARCHITECTURES: "arm64"
           CMAKE_OSX_DEPLOYMENT_TARGET: "11.0"
-          VERSION: "0.2.3"
+          VERSION: "0.2.4"
         run: |
           cd "$PROJECT_ROOT"
           chmod +x scripts/bootstrap_and_build_macos.sh scripts/build_macos.sh scripts/package_dmg_macos.sh
@@ -89,8 +91,8 @@ jobs:
       - name: Upload build candidate for installation testing
         uses: actions/upload-artifact@v4
         with:
-          name: Prophet6Control-macOS-DMG-v0.2.3-candidate
-          path: ${{ env.PROJECT_ROOT }}/dist/Prophet-6-Control-v0.2.3.dmg
+          name: Prophet6Control-macOS-DMG-v0.2.4-candidate
+          path: ${{ env.PROJECT_ROOT }}/dist/Prophet-6-Control-v0.2.4.dmg
           if-no-files-found: error
           compression-level: 0
           retention-days: 7
@@ -105,7 +107,8 @@ jobs:
             test -f "$bundle/Contents/Info.plist"
             test -f "$executable"
             plutil -lint "$bundle/Contents/Info.plist"
-            lipo "$executable" -verify_arch arm64
+            ARCHS="$(lipo -archs "$executable")"
+            [[ " $ARCHS " == *" arm64 "* ]]
             codesign --verify --deep --strict --verbose=2 "$bundle"
             file "$executable"
           }
@@ -126,7 +129,7 @@ jobs:
 
       - name: Verify DMG and installer contents
         run: |
-          DMG="$PROJECT_ROOT/dist/Prophet-6-Control-v0.2.3.dmg"
+          DMG="$PROJECT_ROOT/dist/Prophet-6-Control-v0.2.4.dmg"
           test -s "$DMG"
           hdiutil verify "$DMG"
           MOUNT_POINT="$(mktemp -d)"
@@ -147,8 +150,8 @@ jobs:
       - name: Upload locally installable DMG artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Prophet6Control-macOS-DMG-v0.2.3-local-install
-          path: ${{ env.PROJECT_ROOT }}/dist/Prophet-6-Control-v0.2.3.dmg
+          name: Prophet6Control-macOS-DMG-v0.2.4-local-install
+          path: ${{ env.PROJECT_ROOT }}/dist/Prophet-6-Control-v0.2.4.dmg
           if-no-files-found: error
           compression-level: 0
           retention-days: 30

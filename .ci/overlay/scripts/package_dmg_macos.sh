@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="${BUILD_DIR:-$ROOT/build}"
-VERSION="${VERSION:-0.2.3}"
+VERSION="${VERSION:-0.2.4}"
 ARTIFACTS="$BUILD_DIR/Prophet6Control_artefacts/Release"
 DIST="$ROOT/dist"
 STAGE="$DIST/Prophet 6 Control Installer"
@@ -110,7 +110,7 @@ INSTALLER
 chmod +x "$STAGE/Install.command"
 
 cat > "$STAGE/README.txt" <<'README'
-PROPHET 6 CONTROL v0.2.3
+PROPHET 6 CONTROL v0.2.4
 Apple Silicon local development build
 
 CONTENTS

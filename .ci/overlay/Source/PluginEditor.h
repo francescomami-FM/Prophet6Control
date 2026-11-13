@@ -19,15 +19,19 @@ private:
     void savePresetFile();
     void saveSysExFile();
     void showGlobalSettings(bool shouldShow);
+    void showConnectionSettings();
 
     Prophet6ControlAudioProcessor& processor;
     juce::Viewport viewport;
     std::unique_ptr<juce::Component> mainSurface;
     std::unique_ptr<juce::Component> globalSurface;
+    std::unique_ptr<juce::Component> connectionSurface;
     bool globalsMode = false;
+    bool connectionMode = false;
 
     juce::TextButton panelButton { "PANEL" };
     juce::TextButton globalsButton { "GLOBALS" };
+    juce::TextButton connectionButton { "CONNECTION" };
     juce::TextButton loadButton { "LOAD" };
     juce::TextButton saveButton { "SAVE" };
     juce::TextButton requestDumpButton { "REQUEST PATCH" };

@@ -15,7 +15,7 @@ namespace
     constexpr juce::uint32 edge = 0xff4a5055;
     constexpr juce::uint32 ivory = 0xffe9e1d0;
     constexpr juce::uint32 muted = 0xffa9a69e;
-    constexpr juce::uint32 signal = 0xffd64d37;
+    constexpr juce::uint32 accentColour = 0xffd64d37;
     constexpr juce::uint32 walnut = 0xff79523c;
     constexpr juce::uint32 walnutLight = 0xffa17453;
 
@@ -33,7 +33,7 @@ namespace
             setColour(juce::PopupMenu::backgroundColourId, juce::Colour(panel));
             setColour(juce::PopupMenu::textColourId, juce::Colour(ivory));
             setColour(juce::ToggleButton::textColourId, juce::Colour(ivory));
-            setColour(juce::ToggleButton::tickColourId, juce::Colour(signal));
+            setColour(juce::ToggleButton::tickColourId, juce::Colour(accentColour));
             setColour(juce::TextButton::buttonColourId, juce::Colour(0xff343b40));
             setColour(juce::TextButton::textColourOffId, juce::Colour(ivory));
             setColour(juce::TextButton::textColourOnId, juce::Colours::white);
@@ -56,7 +56,7 @@ namespace
 
             juce::Path arc;
             arc.addCentredArc(cx, cy, radius, radius, 0.0f, startAngle, angle, true);
-            g.setColour(juce::Colour(signal));
+            g.setColour(juce::Colour(accentColour));
             g.strokePath(arc, juce::PathStrokeType(4.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
             const auto knobRadius = radius - 5.0f;
@@ -84,7 +84,7 @@ namespace
             else if (highlighted) fill = fill.brighter(0.08f);
             g.setColour(fill);
             g.fillRoundedRectangle(bounds, 4.0f);
-            g.setColour(button.getToggleState() ? juce::Colour(signal) : juce::Colour(edge));
+            g.setColour(button.getToggleState() ? juce::Colour(accentColour) : juce::Colour(edge));
             g.drawRoundedRectangle(bounds, 4.0f, button.getToggleState() ? 1.4f : 0.8f);
         }
     };
@@ -131,7 +131,7 @@ namespace
                     toggle->setLookAndFeel(&laf);
                     toggle->setTooltip(tooltip);
                     toggle->setColour(juce::ToggleButton::textColourId, juce::Colour(ivory));
-                    toggle->setColour(juce::ToggleButton::tickColourId, juce::Colour(signal));
+                    toggle->setColour(juce::ToggleButton::tickColourId, juce::Colour(accentColour));
                     if (definition.readOnly) toggle->setEnabled(false);
                     buttonAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
                         processor.state, definition.id, *toggle));
@@ -159,7 +159,7 @@ namespace
                     slider->setTextBoxStyle(juce::Slider::TextBoxBelow, false, 48, 14);
                     slider->setRange(definition.minimum, definition.maximum, 1.0);
                     slider->setTooltip(tooltip);
-                    slider->setColour(juce::Slider::rotarySliderFillColourId, juce::Colour(signal));
+                    slider->setColour(juce::Slider::rotarySliderFillColourId, juce::Colour(accentColour));
                     slider->setColour(juce::Slider::rotarySliderOutlineColourId, juce::Colour(0xff4b5359));
                     slider->setColour(juce::Slider::thumbColourId, juce::Colour(ivory));
                     if (definition.readOnly) slider->setEnabled(false);
@@ -187,7 +187,7 @@ namespace
             g.fillRoundedRectangle(bounds, 7.0f);
             g.setColour(juce::Colour(edge));
             g.drawRoundedRectangle(bounds.reduced(0.5f), 7.0f, 0.8f);
-            g.setColour(juce::Colour(signal));
+            g.setColour(juce::Colour(accentColour));
             g.fillRoundedRectangle(bounds.getX() + 10.0f, bounds.getY() + 7.0f, 22.0f, 2.0f, 1.0f);
         }
 
@@ -499,7 +499,7 @@ namespace
             g.setColour(juce::Colour(walnut));
             g.fillRoundedRectangle(leftCard.getX() + 12.0f, leftCard.getY() + 12.0f, 3.0f,
                                     leftCard.getHeight() - 24.0f, 1.5f);
-            g.setColour(juce::Colour(signal));
+            g.setColour(juce::Colour(accentColour));
             g.fillEllipse(leftCard.getX() + 25.0f, leftCard.getY() + 27.0f, 8.0f, 8.0f);
         }
 
@@ -562,6 +562,8 @@ namespace
 
         void refreshDevices()
         {
+            waitingForReply = false;
+            standaloneReplyDetected.store(false, std::memory_order_release);
             closeDirectPorts();
             inputDevices = juce::MidiInput::getAvailableDevices();
             outputDevices = juce::MidiOutput::getAvailableDevices();
@@ -832,7 +834,7 @@ Prophet6ControlAudioProcessorEditor::~Prophet6ControlAudioProcessorEditor()
                              static_cast<juce::Component*>(&requestDumpButton), static_cast<juce::Component*>(&exportDumpButton),
                              static_cast<juce::Component*>(&sendAllButton), static_cast<juce::Component*>(&sendGlobalsButton),
                              static_cast<juce::Component*>(&recallHardwareButton), static_cast<juce::Component*>(&dismissRecallButton),
-                             static_cast<juce::Component*>(&channelBox) })
+                             static_cast<juce::Component*>(&channelBox), static_cast<juce::Component*>(&connectionButton) })
         component->setLookAndFeel(nullptr);
 }
 
@@ -853,7 +855,7 @@ void Prophet6ControlAudioProcessorEditor::paint(juce::Graphics& g)
     g.setColour(juce::Colour(muted));
     g.setFont(juce::Font(9.5f, juce::Font::bold));
     g.drawText("DESKTOP EDITOR  /  LOGIC AUTOMATION", 298, 9, 340, 22, juce::Justification::centredLeft);
-    g.setColour(juce::Colour(signal));
+    g.setColour(juce::Colour(accentColour));
     g.fillEllipse(static_cast<float>(getWidth() - 22), 17.0f, 6.0f, 6.0f);
 }
 

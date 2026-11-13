@@ -371,6 +371,370 @@ namespace
 
         std::vector<std::unique_ptr<ParameterGroup>> groups;
     };
+
+    class ConnectionPanel final : public juce::Component,
+                                  private juce::Timer,
+                                  private juce::MidiInputCallback
+    {
+    public:
+        ConnectionPanel(Prophet6ControlAudioProcessor& p, bool standalone)
+            : processor(p), standaloneMode(standalone)
+        {
+            setOpaque(true);
+            title.setText("DEVICE LINK", juce::dontSendNotification);
+            title.setFont(juce::Font(20.0f, juce::Font::bold));
+            title.setColour(juce::Label::textColourId, juce::Colour(ivory));
+            addAndMakeVisible(title);
+
+            subtitle.setText("Prophet 6 USB MIDI diagnostics", juce::dontSendNotification);
+            subtitle.setFont(juce::Font(11.0f));
+            subtitle.setColour(juce::Label::textColourId, juce::Colour(muted));
+            addAndMakeVisible(subtitle);
+
+            mode.setText(standaloneMode ? "STANDALONE  /  DIRECT CORE MIDI" : "LOGIC PLUGIN  /  HOST ROUTING",
+                         juce::dontSendNotification);
+            mode.setFont(juce::Font(10.0f, juce::Font::bold));
+            mode.setColour(juce::Label::textColourId, juce::Colour(0xffd6a17d));
+            addAndMakeVisible(mode);
+
+            inputTitle.setText("MIDI INPUT  /  PROPHET TO MAC", juce::dontSendNotification);
+            outputTitle.setText("MIDI OUTPUT  /  MAC TO PROPHET", juce::dontSendNotification);
+            for (auto* label : { &inputTitle, &outputTitle })
+            {
+                label->setFont(juce::Font(10.0f, juce::Font::bold));
+                label->setColour(juce::Label::textColourId, juce::Colour(muted));
+                addAndMakeVisible(label);
+            }
+
+            for (auto* combo : { &inputBox, &outputBox })
+            {
+                combo->setLookAndFeel(&sharedLookAndFeel());
+                addAndMakeVisible(combo);
+            }
+            inputBox.setTooltip("Core MIDI input endpoint receiving data from the Prophet 6.");
+            outputBox.setTooltip("Core MIDI output endpoint sending data to the Prophet 6.");
+
+            refreshButton.setLookAndFeel(&sharedLookAndFeel());
+            testButton.setLookAndFeel(&sharedLookAndFeel());
+            refreshButton.onClick = [this] { refreshDevices(); };
+            testButton.onClick = [this] { runConnectionTest(); };
+            addAndMakeVisible(refreshButton);
+            addAndMakeVisible(testButton);
+
+            headline.setText("NOT TESTED", juce::dontSendNotification);
+            headline.setFont(juce::Font(18.0f, juce::Font::bold));
+            headline.setColour(juce::Label::textColourId, juce::Colour(0xffe0b66d));
+            addAndMakeVisible(headline);
+
+            detail.setText("Scan Core MIDI endpoints, then request the Prophet 6 edit buffer to verify a real two way MIDI path.",
+                           juce::dontSendNotification);
+            detail.setFont(juce::Font(11.0f));
+            detail.setColour(juce::Label::textColourId, juce::Colour(ivory));
+            detail.setJustificationType(juce::Justification::topLeft);
+            addAndMakeVisible(detail);
+
+            inputSummary.setColour(juce::Label::textColourId, juce::Colour(muted));
+            outputSummary.setColour(juce::Label::textColourId, juce::Colour(muted));
+            inputSummary.setFont(juce::Font(10.0f));
+            outputSummary.setFont(juce::Font(10.0f));
+            addAndMakeVisible(inputSummary);
+            addAndMakeVisible(outputSummary);
+
+            instructionsTitle.setText("WHAT THIS TEST CHECKS", juce::dontSendNotification);
+            instructionsTitle.setFont(juce::Font(10.0f, juce::Font::bold));
+            instructionsTitle.setColour(juce::Label::textColourId, juce::Colour(0xffd6a17d));
+            addAndMakeVisible(instructionsTitle);
+
+            instructions.setText(
+                standaloneMode
+                    ? "1. Select the Prophet 6 input and output ports.\n"
+                      "2. Press Test Connection. The app sends the read only Edit Buffer request.\n"
+                      "3. A valid 1176 byte Prophet 6 SysEx reply confirms the return path."
+                    : "1. Logic owns the MIDI ports while this Audio Unit is running.\n"
+                      "2. Route this MIDI FX output to the Prophet 6 USB MIDI destination.\n"
+                      "3. Route the Prophet 6 USB MIDI input back to this track, then press Test Connection.\n"
+                      "4. A valid 1176 byte edit buffer reply confirms the return path.",
+                juce::dontSendNotification);
+            instructions.setFont(juce::Font(11.0f));
+            instructions.setColour(juce::Label::textColourId, juce::Colour(ivory));
+            instructions.setJustificationType(juce::Justification::topLeft);
+            addAndMakeVisible(instructions);
+
+            if (!standaloneMode)
+            {
+                inputBox.setEnabled(false);
+                outputBox.setEnabled(false);
+                inputBox.setTooltip("Logic owns MIDI routing in Audio Unit mode. This list is device detection only.");
+                outputBox.setTooltip("Logic owns MIDI routing in Audio Unit mode. This list is device detection only.");
+            }
+
+            refreshDevices();
+            startTimerHz(8);
+        }
+
+        ~ConnectionPanel() override
+        {
+            stopTimer();
+            closeDirectPorts();
+            for (auto* component : { static_cast<juce::Component*>(&inputBox),
+                                     static_cast<juce::Component*>(&outputBox),
+                                     static_cast<juce::Component*>(&refreshButton),
+                                     static_cast<juce::Component*>(&testButton) })
+                component->setLookAndFeel(nullptr);
+        }
+
+        void paint(juce::Graphics& g) override
+        {
+            g.fillAll(juce::Colour(panelDark));
+            auto leftCard = getLocalBounds().toFloat().reduced(12.0f);
+            leftCard.setWidth(juce::jmin(640.0f, leftCard.getWidth() * 0.48f));
+            auto rightCard = getLocalBounds().toFloat().reduced(12.0f);
+            rightCard.setX(leftCard.getRight() + 12.0f);
+            rightCard.setWidth(juce::jmax(200.0f, getWidth() - rightCard.getX() - 12.0f));
+
+            drawCard(g, leftCard, true);
+            drawCard(g, rightCard, false);
+
+            g.setColour(juce::Colour(walnut));
+            g.fillRoundedRectangle(leftCard.getX() + 12.0f, leftCard.getY() + 12.0f, 3.0f,
+                                    leftCard.getHeight() - 24.0f, 1.5f);
+            g.setColour(juce::Colour(signal));
+            g.fillEllipse(leftCard.getX() + 25.0f, leftCard.getY() + 27.0f, 8.0f, 8.0f);
+        }
+
+        void resized() override
+        {
+            auto bounds = getLocalBounds().reduced(28, 24);
+            auto left = bounds.removeFromLeft(juce::jmin(610, bounds.getWidth() / 2 - 8));
+            bounds.removeFromLeft(24);
+            auto right = bounds;
+
+            auto head = left.removeFromTop(52);
+            title.setBounds(head.removeFromTop(26));
+            subtitle.setBounds(head.removeFromTop(20));
+            mode.setBounds(left.removeFromTop(27));
+            inputTitle.setBounds(left.removeFromTop(20));
+            inputBox.setBounds(left.removeFromTop(32));
+            left.removeFromTop(14);
+            outputTitle.setBounds(left.removeFromTop(20));
+            outputBox.setBounds(left.removeFromTop(32));
+            left.removeFromTop(18);
+            auto buttons = left.removeFromTop(34);
+            refreshButton.setBounds(buttons.removeFromLeft(122));
+            buttons.removeFromLeft(8);
+            testButton.setBounds(buttons.removeFromLeft(176));
+            inputSummary.setBounds(left.removeFromTop(25));
+            outputSummary.setBounds(left.removeFromTop(25));
+
+            auto rightHead = right.removeFromTop(64);
+            rightHead.removeFromTop(4);
+            headline.setBounds(rightHead.removeFromTop(30));
+            detail.setBounds(right.removeFromTop(82));
+            right.removeFromTop(8);
+            instructionsTitle.setBounds(right.removeFromTop(22));
+            instructions.setBounds(right.removeFromTop(130));
+        }
+
+        void handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage& message) override
+        {
+            if (!message.isSysEx())
+                return;
+
+            const auto* bytes = message.getRawData();
+            const auto size = message.getRawDataSize();
+            if (size == 1176 && bytes[0] == 0xF0 && bytes[1] == 0x01
+                && bytes[2] == 0x2D && bytes[3] == 0x03 && bytes[size - 1] == 0xF7)
+                standaloneReplyDetected.store(true, std::memory_order_release);
+        }
+
+    private:
+        static void drawCard(juce::Graphics& g, juce::Rectangle<float> bounds, bool primary)
+        {
+            juce::ColourGradient gradient(primary ? juce::Colour(0xff292f34) : juce::Colour(0xff242a2f),
+                                          bounds.getX(), bounds.getY(),
+                                          juce::Colour(0xff171c20), bounds.getRight(), bounds.getBottom(), false);
+            g.setGradientFill(gradient);
+            g.fillRoundedRectangle(bounds, 9.0f);
+            g.setColour(juce::Colour(edge));
+            g.drawRoundedRectangle(bounds.reduced(0.5f), 9.0f, 0.8f);
+        }
+
+        void refreshDevices()
+        {
+            closeDirectPorts();
+            inputDevices = juce::MidiInput::getAvailableDevices();
+            outputDevices = juce::MidiOutput::getAvailableDevices();
+
+            inputBox.clear(juce::dontSendNotification);
+            outputBox.clear(juce::dontSendNotification);
+
+            int inputSelection = 0;
+            int outputSelection = 0;
+            for (int i = 0; i < inputDevices.size(); ++i)
+            {
+                const auto& device = inputDevices.getReference(i);
+                inputBox.addItem(device.name, i + 1);
+                if (device.name.containsIgnoreCase("prophet") && inputSelection == 0)
+                    inputSelection = i + 1;
+            }
+            for (int i = 0; i < outputDevices.size(); ++i)
+            {
+                const auto& device = outputDevices.getReference(i);
+                outputBox.addItem(device.name, i + 1);
+                if (device.name.containsIgnoreCase("prophet") && outputSelection == 0)
+                    outputSelection = i + 1;
+            }
+
+            if (inputSelection == 0 && !inputDevices.isEmpty()) inputSelection = 1;
+            if (outputSelection == 0 && !outputDevices.isEmpty()) outputSelection = 1;
+            inputBox.setSelectedId(inputSelection, juce::dontSendNotification);
+            outputBox.setSelectedId(outputSelection, juce::dontSendNotification);
+
+            const auto hasNamedInput = hasProphetDevice(inputDevices);
+            const auto hasNamedOutput = hasProphetDevice(outputDevices);
+            inputSummary.setText("SYSTEM INPUTS   " + juce::String(inputDevices.size())
+                                 + "    /    PROPHET MATCH   " + yesNo(hasNamedInput),
+                                 juce::dontSendNotification);
+            outputSummary.setText("SYSTEM OUTPUTS   " + juce::String(outputDevices.size())
+                                  + "    /    PROPHET MATCH   " + yesNo(hasNamedOutput),
+                                  juce::dontSendNotification);
+
+            if (hasNamedInput && hasNamedOutput)
+                setStatus("ENDPOINTS VISIBLE", "macOS exposes a Prophet named MIDI input and output. Run the handshake to confirm the hardware reply.");
+            else if (!inputDevices.isEmpty() || !outputDevices.isEmpty())
+                setStatus("MIDI DEVICES FOUND", "Core MIDI is available. Select the Prophet 6 ports if listed, then run the handshake.");
+            else
+                setStatus("NO MIDI ENDPOINTS", "No Core MIDI endpoints are currently visible to this application. Check the USB cable, hub and macOS Audio MIDI Setup.");
+        }
+
+        static bool hasProphetDevice(const juce::Array<juce::MidiDeviceInfo>& devices)
+        {
+            for (const auto& device : devices)
+                if (device.name.containsIgnoreCase("prophet"))
+                    return true;
+            return false;
+        }
+
+        static juce::String yesNo(bool value) { return value ? "YES" : "NO"; }
+
+        void setStatus(const juce::String& heading, const juce::String& message, bool success = false)
+        {
+            headline.setText(heading, juce::dontSendNotification);
+            headline.setColour(juce::Label::textColourId,
+                               success ? juce::Colour(0xff83c69c) : juce::Colour(0xffe0b66d));
+            detail.setText(message, juce::dontSendNotification);
+        }
+
+        void closeDirectPorts()
+        {
+            if (midiInput != nullptr)
+            {
+                midiInput->stop();
+                midiInput.reset();
+            }
+            midiOutput.reset();
+        }
+
+        void runConnectionTest()
+        {
+            if (waitingForReply)
+                return;
+
+            standaloneReplyDetected.store(false, std::memory_order_release);
+            testStartedAt = juce::Time::getMillisecondCounter();
+            waitingForReply = true;
+
+            if (standaloneMode)
+            {
+                const int inId = inputBox.getSelectedId();
+                const int outId = outputBox.getSelectedId();
+                if (inId <= 0 || outId <= 0)
+                {
+                    waitingForReply = false;
+                    setStatus("SELECT MIDI PORTS", "Choose both a MIDI input and output endpoint before testing.");
+                    return;
+                }
+
+                closeDirectPorts();
+                midiInput = juce::MidiInput::openDevice(inputDevices.getReference(inId - 1).identifier, this);
+                midiOutput = juce::MidiOutput::openDevice(outputDevices.getReference(outId - 1).identifier);
+                if (midiInput == nullptr || midiOutput == nullptr)
+                {
+                    waitingForReply = false;
+                    closeDirectPorts();
+                    setStatus("PORT OPEN FAILED", "macOS lists the selected endpoint, but the application could not open both MIDI directions. Check the USB connection and port permissions.");
+                    return;
+                }
+
+                midiInput->start();
+                const auto request = p6::makeEditBufferDumpRequest();
+                const auto message = juce::MidiMessage::createSysExMessage(request.data(),
+                                                                           static_cast<int>(request.size()));
+                midiOutput->sendMessageNow(message);
+                setStatus("REQUEST SENT", "Read only edit buffer request sent. Waiting up to 8 seconds for a valid Prophet 6 SysEx reply.");
+            }
+            else
+            {
+                processor.requestCurrentEditBufferDump();
+                setStatus("REQUEST QUEUED IN LOGIC", "Logic has the MIDI ports. Waiting for its routed Prophet 6 USB MIDI input to return a valid edit buffer dump.");
+            }
+        }
+
+        void timerCallback() override
+        {
+            if (!waitingForReply)
+                return;
+
+            if (standaloneMode && standaloneReplyDetected.load(std::memory_order_acquire))
+            {
+                waitingForReply = false;
+                setStatus("PROPHET 6 CONNECTED", "A valid 1176 byte Prophet 6 edit buffer SysEx reply was received over the selected USB MIDI input.", true);
+                return;
+            }
+
+            if (!standaloneMode)
+            {
+                const auto hostStatus = processor.getStatusText();
+                if (hostStatus.contains("Prophet-6 edit buffer captured"))
+                {
+                    waitingForReply = false;
+                    setStatus("PROPHET 6 CONNECTED", "Logic returned a valid Prophet 6 edit buffer SysEx message to the plug in input.", true);
+                    return;
+                }
+                if (hostStatus.contains("A SysEx transfer is already queued"))
+                {
+                    waitingForReply = false;
+                    setStatus("TEST NOT SENT", hostStatus);
+                    return;
+                }
+            }
+
+            if (juce::Time::getMillisecondCounter() - testStartedAt > 8000u)
+            {
+                waitingForReply = false;
+                if (standaloneMode)
+                    setStatus("NO HARDWARE REPLY", "The MIDI request was sent, but no valid Prophet 6 edit buffer response arrived. Check the selected input and output ports, MIDI SysEx settings and USB connection.");
+                else
+                    setStatus("NO RETURN DATA", "Logic did not return a valid Prophet 6 edit buffer dump. Check the MIDI FX output route, the Prophet 6 USB MIDI input return path and SysEx filtering.");
+            }
+        }
+
+        Prophet6ControlAudioProcessor& processor;
+        const bool standaloneMode;
+        juce::Array<juce::MidiDeviceInfo> inputDevices, outputDevices;
+        std::unique_ptr<juce::MidiInput> midiInput;
+        std::unique_ptr<juce::MidiOutput> midiOutput;
+        std::atomic<bool> standaloneReplyDetected { false };
+        bool waitingForReply = false;
+        juce::uint32 testStartedAt = 0;
+
+        juce::Label title, subtitle, mode, inputTitle, outputTitle, headline, detail;
+        juce::Label inputSummary, outputSummary, instructionsTitle, instructions;
+        juce::ComboBox inputBox, outputBox;
+        juce::TextButton refreshButton { "REFRESH DEVICES" };
+        juce::TextButton testButton { "TEST CONNECTION" };
+    };
+
 }
 
 Prophet6ControlAudioProcessorEditor::Prophet6ControlAudioProcessorEditor(Prophet6ControlAudioProcessor& p)
@@ -385,13 +749,16 @@ Prophet6ControlAudioProcessorEditor::Prophet6ControlAudioProcessorEditor(Prophet
     mainSurface->setSize(1480, 710);
     globalSurface = std::make_unique<GlobalPanel>(processor);
     globalSurface->setSize(1480, 340);
+    connectionSurface = std::make_unique<ConnectionPanel>(
+        processor, processor.wrapperType == juce::AudioProcessor::wrapperType_Standalone);
+    connectionSurface->setSize(1480, 710);
 
     viewport.setViewedComponent(mainSurface.get(), false);
     viewport.setScrollBarsShown(false, true);
     viewport.setScrollBarThickness(8);
     addAndMakeVisible(viewport);
 
-    for (auto* button : { &panelButton, &globalsButton, &loadButton, &saveButton, &requestDumpButton,
+    for (auto* button : { &panelButton, &globalsButton, &connectionButton, &loadButton, &saveButton, &requestDumpButton,
                           &exportDumpButton, &sendAllButton, &sendGlobalsButton, &recallHardwareButton,
                           &dismissRecallButton })
     {
@@ -406,6 +773,7 @@ Prophet6ControlAudioProcessorEditor::Prophet6ControlAudioProcessorEditor(Prophet
     panelButton.setToggleState(true, juce::dontSendNotification);
     panelButton.onClick = [this] { showGlobalSettings(false); };
     globalsButton.onClick = [this] { showGlobalSettings(true); };
+    connectionButton.onClick = [this] { showConnectionSettings(); };
 
     hardwareLink.setColour(juce::HyperlinkButton::textColourId, juce::Colour(muted));
     hardwareLink.setFont(juce::Font(10.0f), false);
@@ -489,7 +857,9 @@ void Prophet6ControlAudioProcessorEditor::resized()
     panelButton.setBounds(toolbar.removeFromLeft(64));
     toolbar.removeFromLeft(5);
     globalsButton.setBounds(toolbar.removeFromLeft(76));
-    toolbar.removeFromLeft(11);
+    toolbar.removeFromLeft(5);
+    connectionButton.setBounds(toolbar.removeFromLeft(112));
+    toolbar.removeFromLeft(6);
     loadButton.setBounds(toolbar.removeFromLeft(58));
     toolbar.removeFromLeft(4);
     saveButton.setBounds(toolbar.removeFromLeft(58));
@@ -517,7 +887,7 @@ void Prophet6ControlAudioProcessorEditor::resized()
 
     statusLabel.setBounds(area.removeFromBottom(20));
     viewport.setBounds(area);
-    auto* viewed = globalsMode ? globalSurface.get() : mainSurface.get();
+    auto* viewed = connectionMode ? connectionSurface.get() : (globalsMode ? globalSurface.get() : mainSurface.get());
     viewed->setSize(juce::jmax(1, viewport.getWidth()), globalsMode ? 340 : 710);
     viewport.setViewedComponent(viewed, false);
 }
@@ -525,8 +895,22 @@ void Prophet6ControlAudioProcessorEditor::resized()
 void Prophet6ControlAudioProcessorEditor::showGlobalSettings(bool shouldShow)
 {
     globalsMode = shouldShow;
+    connectionMode = false;
     panelButton.setToggleState(!globalsMode, juce::dontSendNotification);
     globalsButton.setToggleState(globalsMode, juce::dontSendNotification);
+    connectionButton.setToggleState(false, juce::dontSendNotification);
+    resized();
+    viewport.setViewPosition(0, 0);
+}
+
+
+void Prophet6ControlAudioProcessorEditor::showConnectionSettings()
+{
+    globalsMode = false;
+    connectionMode = true;
+    panelButton.setToggleState(false, juce::dontSendNotification);
+    globalsButton.setToggleState(false, juce::dontSendNotification);
+    connectionButton.setToggleState(true, juce::dontSendNotification);
     resized();
     viewport.setViewPosition(0, 0);
 }

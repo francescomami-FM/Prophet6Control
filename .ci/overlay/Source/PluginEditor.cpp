@@ -1,5 +1,6 @@
 #include "PluginEditor.h"
 #include "ParameterMap.h"
+#include "ProtocolCore.h"
 
 #include <algorithm>
 #include <cmath>
@@ -668,8 +669,16 @@ namespace
 
                 midiInput->start();
                 const auto request = p6::makeEditBufferDumpRequest();
-                const auto message = juce::MidiMessage::createSysExMessage(request.data(),
-                                                                           static_cast<int>(request.size()));
+                // createSysExMessage adds F0 and F7 itself. The protocol helper
+                // returns a complete framed message, so pass only its payload.
+                if (request.size() < 3 || request.front() != 0xF0 || request.back() != 0xF7)
+                {
+                    waitingForReply = false;
+                    setStatus("INVALID TEST REQUEST", "The Prophet 6 edit buffer request could not be constructed.");
+                    return;
+                }
+                const auto message = juce::MidiMessage::createSysExMessage(
+                    request.data() + 1, static_cast<int>(request.size() - 2));
                 midiOutput->sendMessageNow(message);
                 setStatus("REQUEST SENT", "Read only edit buffer request sent. Waiting up to 8 seconds for a valid Prophet 6 SysEx reply.");
             }

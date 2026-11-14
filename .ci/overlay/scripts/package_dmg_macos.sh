@@ -85,7 +85,7 @@ install_bundle() {
   # Preserve any existing installation before replacing it. If copying,
   # signing or verification of the new bundle fails, restore the backup.
   if [[ -e "$target" || -L "$target" ]]; then
-    /usr/bin/mkdir -p "$(dirname "$backup")"
+    /bin/mkdir -p "$(dirname "$backup")"
     /usr/bin/ditto "$target" "$backup"
     had_previous=1
     echo "Previous version backed up to: $backup"

@@ -163,11 +163,16 @@ jobs:
           find "$BACKUPS" -type d -path '*/VST3/Prophet 6 Control.vst3' -print -quit | grep -q .
           find "$BACKUPS" -type d -path '*/Applications/Prophet 6 Control.app' -print -quit | grep -q .
 
-          # Prove transaction rollback restores all three pre-existing binaries.
-          AU_BIN="$TEST_HOME/Library/Audio/Plug-Ins/Components/Prophet 6 Control.component/Contents/MacOS/Prophet 6 Control"
-          VST3_BIN="$TEST_HOME/Library/Audio/Plug-Ins/VST3/Prophet 6 Control.vst3/Contents/MacOS/Prophet 6 Control"
-          APP_BIN="$TEST_HOME/Applications/Prophet 6 Control.app/Contents/MacOS/Prophet 6 Control"
-          shasum -a 256 "$AU_BIN" "$VST3_BIN" "$APP_BIN" > "$TEST_HOME/pre-rollback.sha256"
+          # Replace the isolated install with three distinct dummy prior versions.
+          # The forced failure below must restore these exact prior directories.
+          AU_DEST="$TEST_HOME/Library/Audio/Plug-Ins/Components/Prophet 6 Control.component"
+          VST3_DEST="$TEST_HOME/Library/Audio/Plug-Ins/VST3/Prophet 6 Control.vst3"
+          APP_DEST="$TEST_HOME/Applications/Prophet 6 Control.app"
+          for previous in "$AU_DEST" "$VST3_DEST" "$APP_DEST"; do
+            rm -rf "$previous"
+            mkdir -p "$previous"
+            printf 'previous-installed-version\\n' > "$previous/PREVIOUS_INSTALLATION_MARKER.txt"
+          done
 
           TEST_PACKAGE="$(mktemp -d)"
           ditto "$MOUNT_POINT" "$TEST_PACKAGE"
@@ -181,7 +186,7 @@ jobs:
               raise SystemExit("VST3 install line not found for rollback injection")
           installer.write_text(text.replace(
               needle,
-              'echo "CI injected failure after AU replacement"\nfalse',
+              'echo "CI injected failure after AU replacement"\\nfalse',
               1
           ))
           PY
@@ -191,10 +196,9 @@ jobs:
             exit 1
           fi
           grep -q "CI injected failure after AU replacement" "$TEST_HOME/rollback-test.log"
-          shasum -a 256 --check "$TEST_HOME/pre-rollback.sha256"
-          codesign --verify --deep --strict "$TEST_HOME/Library/Audio/Plug-Ins/Components/Prophet 6 Control.component"
-          codesign --verify --deep --strict "$TEST_HOME/Library/Audio/Plug-Ins/VST3/Prophet 6 Control.vst3"
-          codesign --verify --deep --strict "$TEST_HOME/Applications/Prophet 6 Control.app"
+          test -f "$AU_DEST/PREVIOUS_INSTALLATION_MARKER.txt"
+          test -f "$VST3_DEST/PREVIOUS_INSTALLATION_MARKER.txt"
+          test -f "$APP_DEST/PREVIOUS_INSTALLATION_MARKER.txt"
           rm -rf "$TEST_PACKAGE" "$TEST_HOME"
 
           if grep -q 'xattr.*com.apple.quarantine' "$MOUNT_POINT/Install.command"; then

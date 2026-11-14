@@ -181,7 +181,7 @@ jobs:
               raise SystemExit("VST3 install line not found for rollback injection")
           installer.write_text(text.replace(
               needle,
-              'echo "CI injected failure after AU replacement"\\nfalse',
+              'echo "CI injected failure after AU replacement"\nfalse',
               1
           ))
           PY

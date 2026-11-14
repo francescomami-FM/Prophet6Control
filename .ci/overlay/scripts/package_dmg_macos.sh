@@ -67,7 +67,7 @@ esac
 mkdir -p "$COMPONENTS" "$VST3" "$APPS"
 
 BACKUP_STAMP="$(date +%Y%m%d-%H%M%S)"
-BACKUP_ROOT="$HOME/Library/Application Support/Prophet 6 Control/Backups/$BACKUP_STAMP"
+BACKUP_ROOT="$HOME/Library/Application Support/Prophet 6 Control/Backups/$BACKUP_STAMP-$"
 
 install_bundle() {
   local source="$1"
@@ -106,7 +106,7 @@ install_bundle() {
   # bundle resource seal; quarantine removal is limited to this installed
   # bundle because this personal development build has no notarisation ticket.
   if ! /usr/bin/codesign --force --deep --sign - --timestamp=none "$target" \
-      || ! /usr/bin/xattr -dr com.apple.quarantine "$target" 2>/dev/null \
+      || { /usr/bin/xattr -dr com.apple.quarantine "$target" 2>/dev/null || true; } \
       || ! /usr/bin/codesign --verify --deep --strict --verbose=2 "$target"; then
     echo "New bundle failed signing or verification: $target" >&2
     /bin/rm -rf "$target"
@@ -177,7 +177,7 @@ This build is ad hoc signed and is not notarised. It is intended for local
 personal development use, not public distribution. The installer applies a
 local ad hoc signature, verifies each installed bundle, and removes the
 macOS quarantine attribute from only these installed Prophet 6 Control
-bundles. It does not disable Gatekeeper or change security settings globally.
+bundles. It does not disable Gatekeeper or change security settings globally.\nExisting installations are backed up before replacement. A failed copy or\nsigning check restores the previous bundle when a backup exists.
 Only install this build if you trust the project source and build.
 
 WORKFLOW

@@ -752,7 +752,6 @@ Prophet6ControlAudioProcessorEditor::Prophet6ControlAudioProcessorEditor(Prophet
     : AudioProcessorEditor(&p), processor(p)
 {
     setLookAndFeel(&sharedLookAndFeel());
-    setSize(1540, 970);
     setResizable(true, true);
     setResizeLimits(1280, 800, 1920, 1200);
 
@@ -822,6 +821,9 @@ Prophet6ControlAudioProcessorEditor::Prophet6ControlAudioProcessorEditor(Prophet
     statusLabel.setFont(juce::Font(10.0f));
     statusLabel.setText(processor.getStatusText(), juce::dontSendNotification);
     addAndMakeVisible(statusLabel);
+
+    // Build all viewed components before the initial size change can invoke resized().
+    setSize(1540, 970);
     startTimerHz(4);
 }
 
@@ -899,6 +901,9 @@ void Prophet6ControlAudioProcessorEditor::resized()
     statusLabel.setBounds(area.removeFromBottom(20));
     viewport.setBounds(area);
     auto* viewed = connectionMode ? connectionSurface.get() : (globalsMode ? globalSurface.get() : mainSurface.get());
+    if (viewed == nullptr)
+        return;
+
     viewed->setSize(juce::jmax(1, viewport.getWidth()), globalsMode ? 340 : 710);
     viewport.setViewedComponent(viewed, false);
 }

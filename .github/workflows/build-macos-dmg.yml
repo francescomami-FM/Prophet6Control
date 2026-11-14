@@ -153,11 +153,11 @@ jobs:
           # Exercise the installer in an isolated HOME, never the runner's
           # real home directory. The second pass must back up all 3 bundles.
           TEST_HOME="$(mktemp -d)"
-          printf 'y\\n\\n' | HOME="$TEST_HOME" bash "$MOUNT_POINT/Install.command"
+          printf 'y\n\n' | HOME="$TEST_HOME" bash "$MOUNT_POINT/Install.command"
           test -d "$TEST_HOME/Library/Audio/Plug-Ins/Components/Prophet 6 Control.component"
           test -d "$TEST_HOME/Library/Audio/Plug-Ins/VST3/Prophet 6 Control.vst3"
           test -d "$TEST_HOME/Applications/Prophet 6 Control.app"
-          printf 'y\\n\\n' | HOME="$TEST_HOME" bash "$MOUNT_POINT/Install.command"
+          printf 'y\n\n' | HOME="$TEST_HOME" bash "$MOUNT_POINT/Install.command"
           BACKUPS="$TEST_HOME/Library/Application Support/Prophet 6 Control/Backups"
           test -d "$BACKUPS/Components/Prophet 6 Control.component"
           test -d "$BACKUPS/VST3/Prophet 6 Control.vst3"

@@ -66,31 +66,66 @@ esac
 
 mkdir -p "$COMPONENTS" "$VST3" "$APPS"
 
+BACKUP_STAMP="$(date +%Y%m%d-%H%M%S)"
+BACKUP_ROOT="$HOME/Library/Application Support/Prophet 6 Control/Backups/$BACKUP_STAMP"
+
 install_bundle() {
   local source="$1"
   local destination="$2"
-  local name
+  local category="$3"
+  local name target backup had_previous
   name="$(basename "$source")"
+  target="$destination/$name"
+  backup="$BACKUP_ROOT/$category/$name"
+  had_previous=0
+
   echo
   echo "Installing $name"
-  rm -rf "$destination/$name"
-  /usr/bin/ditto "$source" "$destination/$name"
+
+  # Preserve any existing installation before replacing it. If copying,
+  # signing or verification of the new bundle fails, restore the backup.
+  if [[ -e "$target" || -L "$target" ]]; then
+    /usr/bin/mkdir -p "$(dirname "$backup")"
+    /usr/bin/ditto "$target" "$backup"
+    had_previous=1
+    echo "Previous version backed up to: $backup"
+  fi
+
+  /bin/rm -rf "$target"
+  if ! /usr/bin/ditto "$source" "$target"; then
+    echo "Could not copy the new bundle: $target" >&2
+    /bin/rm -rf "$target"
+    if [[ "$had_previous" -eq 1 ]]; then
+      /usr/bin/ditto "$backup" "$target"
+      echo "Previous version restored."
+    fi
+    return 1
+  fi
 
   # These are locally built project bundles. Ad hoc signing repairs the
-  # bundle resource seal; removing quarantine is limited to this installed
+  # bundle resource seal; quarantine removal is limited to this installed
   # bundle because this personal development build has no notarisation ticket.
-  /usr/bin/codesign --force --deep --sign - --timestamp=none "$destination/$name"
-  /usr/bin/xattr -dr com.apple.quarantine "$destination/$name" 2>/dev/null || true
-  /usr/bin/codesign --verify --deep --strict --verbose=2 "$destination/$name"
-  echo "Verified: $destination/$name"
+  if ! /usr/bin/codesign --force --deep --sign - --timestamp=none "$target" \
+      || ! /usr/bin/xattr -dr com.apple.quarantine "$target" 2>/dev/null \
+      || ! /usr/bin/codesign --verify --deep --strict --verbose=2 "$target"; then
+    echo "New bundle failed signing or verification: $target" >&2
+    /bin/rm -rf "$target"
+    if [[ "$had_previous" -eq 1 ]]; then
+      /usr/bin/ditto "$backup" "$target"
+      echo "Previous version restored."
+    fi
+    return 1
+  fi
+
+  echo "Verified: $target"
 }
 
 AU_COUNT=0
 VST3_COUNT=0
 APP_COUNT=0
-while IFS= read -r -d '' bundle; do install_bundle "$bundle" "$COMPONENTS"; AU_COUNT=$((AU_COUNT + 1)); done < <(find "$HERE/Audio Units" -maxdepth 1 -type d -name '*.component' -print0)
-while IFS= read -r -d '' bundle; do install_bundle "$bundle" "$VST3"; VST3_COUNT=$((VST3_COUNT + 1)); done < <(find "$HERE/VST3" -maxdepth 1 -type d -name '*.vst3' -print0)
-while IFS= read -r -d '' bundle; do install_bundle "$bundle" "$APPS"; APP_COUNT=$((APP_COUNT + 1)); done < <(find "$HERE/Applications" -maxdepth 1 -type d -name '*.app' -print0)
+while IFS= read -r -d '' bundle; do install_bundle "$bundle" "$COMPONENTS" "Components"; AU_COUNT=$((AU_COUNT + 1)); done < <(find "$HERE/Audio Units" -maxdepth 1 -type d -name '*.component' -print0)
+while IFS= read -r -d '' bundle; do install_bundle "$bundle" "$VST3" "VST3"; VST3_COUNT=$((VST3_COUNT + 1)); done < <(find "$HERE/VST3" -maxdepth 1 -type d -name '*.vst3' -print0)
+while IFS= read -r -d '' bundle; do install_bundle "$bundle" "$APPS" "Applications"; APP_COUNT=$((APP_COUNT + 1)); done < <(find "$HERE/Applications" -maxdepth 1 -type d -name '*.app' -print0)
 
 [[ "$AU_COUNT" -gt 0 && "$VST3_COUNT" -gt 0 && "$APP_COUNT" -gt 0 ]] || {
   echo "Installation incomplete. AU=$AU_COUNT VST3=$VST3_COUNT Standalone=$APP_COUNT" >&2
@@ -99,6 +134,11 @@ while IFS= read -r -d '' bundle; do install_bundle "$bundle" "$APPS"; APP_COUNT=
 
 echo
 echo "Installation complete."
+if [[ -d "$BACKUP_ROOT" ]]; then
+  echo "Previous installation backups: $BACKUP_ROOT"
+else
+  echo "No previous Prophet 6 Control installation needed backing up."
+fi
 echo "AU:        $COMPONENTS/Prophet 6 Control.component"
 echo "VST3:      $VST3/Prophet 6 Control.vst3"
 echo "Standalone: $APPS/Prophet 6 Control.app"

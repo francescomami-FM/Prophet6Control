@@ -53,108 +53,148 @@ COMPONENTS="$HOME/Library/Audio/Plug-Ins/Components"
 VST3="$HOME/Library/Audio/Plug-Ins/VST3"
 APPS="$HOME/Applications"
 
+AU_SOURCE="$HERE/Audio Units/Prophet 6 Control.component"
+VST3_SOURCE="$HERE/VST3/Prophet 6 Control.vst3"
+APP_SOURCE="$HERE/Applications/Prophet 6 Control.app"
+
 echo "Prophet 6 Control local installation"
-echo "This build is ad hoc signed and is not notarised."
-echo "The installer will sign the installed bundles locally and remove the"
-echo "download quarantine flag from these three Prophet 6 Control bundles only."
-echo "It will not change Gatekeeper settings or other applications."
+echo "Apple Silicon development build. Ad hoc signed, not notarised."
+echo "The installer does not disable Gatekeeper or remove quarantine attributes."
+echo "macOS may require you to approve the installer or app in Privacy & Security."
 read -r -p "Continue? [y/N] " answer
 case "$answer" in
   y|Y|yes|YES) ;;
   *) echo "Installation cancelled."; exit 0 ;;
 esac
 
-mkdir -p "$COMPONENTS" "$VST3" "$APPS"
+# Validate all source bundles before touching the existing installation.
+for bundle in "$AU_SOURCE" "$VST3_SOURCE" "$APP_SOURCE"; do
+  if [[ ! -d "$bundle" || ! -f "$bundle/Contents/Info.plist" ]]; then
+    echo "Required application bundle is missing or incomplete: $bundle" >&2
+    exit 20
+  fi
+  /usr/bin/plutil -lint "$bundle/Contents/Info.plist"
+  /usr/bin/codesign --verify --deep --strict "$bundle"
+done
 
-BACKUP_STAMP="$(date +%Y%m%d-%H%M%S)"
+/bin/mkdir -p "$COMPONENTS" "$VST3" "$APPS"
+
+BACKUP_STAMP="$(/bin/date +%Y%m%d-%H%M%S)"
 BACKUP_ROOT="$HOME/Library/Application Support/Prophet 6 Control/Backups/$BACKUP_STAMP-$(/usr/bin/uuidgen)"
+
+TARGET_PATHS=()
+BACKUP_PATHS=()
+HAD_PREVIOUS=()
+ROLLBACK_ACTIVE=0
+
+prepare_backup() {
+  local target="$1"
+  local category="$2"
+  local name backup
+
+  name="$(/usr/bin/basename "$target")"
+  backup="$BACKUP_ROOT/$category/$name"
+
+  TARGET_PATHS+=("$target")
+  BACKUP_PATHS+=("$backup")
+
+  if [[ -e "$target" || -L "$target" ]]; then
+    /bin/mkdir -p "$(/usr/bin/dirname "$backup")"
+    /usr/bin/ditto "$target" "$backup"
+    HAD_PREVIOUS+=(1)
+    echo "Backed up existing $category bundle: $backup"
+  else
+    HAD_PREVIOUS+=(0)
+    echo "No previous $category bundle found."
+  fi
+}
+
+rollback_all() {
+  local index target backup failures
+  failures=0
+  echo
+  echo "Installation did not complete. Restoring the previous state."
+
+  for ((index=${#TARGET_PATHS[@]}-1; index>=0; index--)); do
+    target="${TARGET_PATHS[$index]}"
+    backup="${BACKUP_PATHS[$index]}"
+    /bin/rm -rf "$target"
+
+    if [[ "${HAD_PREVIOUS[$index]}" == "1" ]]; then
+      if [[ -e "$backup" ]]; then
+        if /usr/bin/ditto "$backup" "$target"; then
+          echo "Restored: $target"
+        else
+          echo "CRITICAL: automatic restore failed. Original backup remains at: $backup" >&2
+          failures=1
+        fi
+      else
+        echo "CRITICAL: expected backup is missing: $backup" >&2
+        failures=1
+      fi
+    else
+      echo "Removed incomplete new installation: $target"
+    fi
+  done
+
+  return "$failures"
+}
+
+finish_install() {
+  local status="$?"
+  trap - EXIT
+  if [[ "$ROLLBACK_ACTIVE" == "1" ]]; then
+    rollback_all || echo "One or more automatic restores failed. Preserve the backup folder shown above." >&2
+  fi
+  exit "$status"
+}
+
+# Back up every existing component before replacing any of them.
+prepare_backup "$COMPONENTS/Prophet 6 Control.component" "Components"
+prepare_backup "$VST3/Prophet 6 Control.vst3" "VST3"
+prepare_backup "$APPS/Prophet 6 Control.app" "Applications"
+
+# From this point, any unexpected exit rolls every installed path back.
+ROLLBACK_ACTIVE=1
+trap finish_install EXIT
 
 install_bundle() {
   local source="$1"
-  local destination="$2"
-  local category="$3"
-  local name target backup had_previous
-  name="$(basename "$source")"
-  target="$destination/$name"
-  backup="$BACKUP_ROOT/$category/$name"
-  had_previous=0
+  local target="$2"
+  local label="$3"
 
   echo
-  echo "Installing $name"
-
-  # Preserve any existing installation before replacing it. If copying,
-  # signing or verification of the new bundle fails, restore the backup.
-  if [[ -e "$target" || -L "$target" ]]; then
-    /bin/mkdir -p "$(dirname "$backup")"
-    /usr/bin/ditto "$target" "$backup"
-    had_previous=1
-    echo "Previous version backed up to: $backup"
-  fi
-
+  echo "Installing $label"
   /bin/rm -rf "$target"
-  if ! /usr/bin/ditto "$source" "$target"; then
-    echo "Could not copy the new bundle: $target" >&2
-    /bin/rm -rf "$target"
-    if [[ "$had_previous" -eq 1 ]]; then
-      /usr/bin/ditto "$backup" "$target"
-      echo "Previous version restored."
-    fi
-    return 1
-  fi
+  /usr/bin/ditto "$source" "$target"
 
-  # These are locally built project bundles. Ad hoc signing repairs the
-  # bundle resource seal; quarantine removal is limited to this installed
-  # bundle because this personal development build has no notarisation ticket.
-  if ! /usr/bin/codesign --force --deep --sign - --timestamp=none "$target"; then
-    echo "Could not sign the new bundle: $target" >&2
-    /bin/rm -rf "$target"
-    if [[ "$had_previous" -eq 1 ]]; then
-      /usr/bin/ditto "$backup" "$target"
-      echo "Previous version restored."
-    fi
-    return 1
-  fi
-
-  /usr/bin/xattr -dr com.apple.quarantine "$target" 2>/dev/null || true
-
-  if ! /usr/bin/codesign --verify --deep --strict --verbose=2 "$target"; then
-    echo "New bundle failed signature verification: $target" >&2
-    /bin/rm -rf "$target"
-    if [[ "$had_previous" -eq 1 ]]; then
-      /usr/bin/ditto "$backup" "$target"
-      echo "Previous version restored."
-    fi
-    return 1
-  fi
-
+  # Ad hoc signing repairs the local bundle resource seal. It does not
+  # establish a Developer ID identity or bypass macOS Gatekeeper.
+  /usr/bin/codesign --force --deep --sign - --timestamp=none "$target"
+  /usr/bin/codesign --verify --deep --strict --verbose=2 "$target"
   echo "Verified: $target"
 }
 
-AU_COUNT=0
-VST3_COUNT=0
-APP_COUNT=0
-while IFS= read -r -d '' bundle; do install_bundle "$bundle" "$COMPONENTS" "Components"; AU_COUNT=$((AU_COUNT + 1)); done < <(find "$HERE/Audio Units" -maxdepth 1 -type d -name '*.component' -print0)
-while IFS= read -r -d '' bundle; do install_bundle "$bundle" "$VST3" "VST3"; VST3_COUNT=$((VST3_COUNT + 1)); done < <(find "$HERE/VST3" -maxdepth 1 -type d -name '*.vst3' -print0)
-while IFS= read -r -d '' bundle; do install_bundle "$bundle" "$APPS" "Applications"; APP_COUNT=$((APP_COUNT + 1)); done < <(find "$HERE/Applications" -maxdepth 1 -type d -name '*.app' -print0)
+install_bundle "$AU_SOURCE" "$COMPONENTS/Prophet 6 Control.component" "Audio Unit"
+install_bundle "$VST3_SOURCE" "$VST3/Prophet 6 Control.vst3" "VST3"
+install_bundle "$APP_SOURCE" "$APPS/Prophet 6 Control.app" "Standalone application"
 
-[[ "$AU_COUNT" -gt 0 && "$VST3_COUNT" -gt 0 && "$APP_COUNT" -gt 0 ]] || {
-  echo "Installation incomplete. AU=$AU_COUNT VST3=$VST3_COUNT Standalone=$APP_COUNT" >&2
-  exit 20
-}
+ROLLBACK_ACTIVE=0
+trap - EXIT
 
 echo
 echo "Installation complete."
 if [[ -d "$BACKUP_ROOT" ]]; then
   echo "Previous installation backups: $BACKUP_ROOT"
 else
-  echo "No previous Prophet 6 Control installation needed backing up."
+  echo "No previous installation needed backing up."
 fi
-echo "AU:        $COMPONENTS/Prophet 6 Control.component"
-echo "VST3:      $VST3/Prophet 6 Control.vst3"
+echo "AU:         $COMPONENTS/Prophet 6 Control.component"
+echo "VST3:       $VST3/Prophet 6 Control.vst3"
 echo "Standalone: $APPS/Prophet 6 Control.app"
 echo
-echo "Quit and reopen Logic Pro. In Plug-in Manager, reset and rescan Prophet 6 Control if needed."
-echo "Open the standalone from your home Applications folder to test the editor."
+echo "Quit and reopen Logic Pro. Reset and rescan Prophet 6 Control in Plug-in Manager if necessary."
+echo "If macOS blocks the standalone app, use System Settings > Privacy & Security > Open Anyway after confirming its origin."
 read -r -p "Press Return to close. " _
 INSTALLER
 chmod +x "$STAGE/Install.command"

@@ -171,7 +171,7 @@ jobs:
           for previous in "$AU_DEST" "$VST3_DEST" "$APP_DEST"; do
             rm -rf "$previous"
             mkdir -p "$previous"
-            printf 'previous-installed-version\\n' > "$previous/PREVIOUS_INSTALLATION_MARKER.txt"
+            printf 'previous-installed-version' > "$previous/PREVIOUS_INSTALLATION_MARKER.txt"
           done
 
           TEST_PACKAGE="$(mktemp -d)"
@@ -186,11 +186,11 @@ jobs:
               raise SystemExit("VST3 install line not found for rollback injection")
           installer.write_text(text.replace(
               needle,
-              'echo "CI injected failure after AU replacement"\\nfalse',
+              'echo "CI injected failure after AU replacement"' + chr(10) + 'false',
               1
           ))
           PY
-          if printf 'y\\n' | HOME="$TEST_HOME" bash "$TEST_PACKAGE/Install.command" > "$TEST_HOME/rollback-test.log" 2>&1; then
+          if printf 'y\n' | HOME="$TEST_HOME" bash "$TEST_PACKAGE/Install.command" > "$TEST_HOME/rollback-test.log" 2>&1; then
             echo "::error::Installer did not fail at the injected VST3 step"
             cat "$TEST_HOME/rollback-test.log"
             exit 1

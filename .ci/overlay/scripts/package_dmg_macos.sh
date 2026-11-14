@@ -187,7 +187,9 @@ This build is ad hoc signed and is not notarised. It is intended for local
 personal development use, not public distribution. The installer applies a
 local ad hoc signature, verifies each installed bundle, and removes the
 macOS quarantine attribute from only these installed Prophet 6 Control
-bundles. It does not disable Gatekeeper or change security settings globally.\nExisting installations are backed up before replacement. A failed copy or\nsigning check restores the previous bundle when a backup exists.
+bundles. It does not disable Gatekeeper or change security settings globally.
+Existing installations are backed up before replacement. A failed copy or
+signing check restores the previous bundle when a backup exists.
 Only install this build if you trust the project source and build.
 
 WORKFLOW

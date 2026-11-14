@@ -125,6 +125,16 @@ jobs:
           ditto "$AU_SOURCE" "$AU_DEST"
           xattr -dr com.apple.quarantine "$AU_DEST" 2>/dev/null || true
           codesign --verify --deep --strict --verbose=2 "$AU_DEST"
+          echo "Refreshing macOS Audio Unit registration"
+          /usr/bin/killall -9 AudioComponentRegistrar 2>/dev/null || true
+          sleep 5
+          echo "Registered Audio Units matching Prophet 6 Control"
+          AU_LIST="$(auval -a)"
+          printf '%s\n' "$AU_LIST" | grep -i -E 'P6Ct|Prophet 6 Control' || true
+          if ! printf '%s\n' "$AU_LIST" | grep -q 'P6Ct'; then
+            echo "::error::Prophet 6 Control (P6Ct) was not discovered by AudioComponentRegistrar"
+            exit 1
+          fi
           auval -v aumi P6Ct StTl
 
       - name: Verify DMG and installer contents

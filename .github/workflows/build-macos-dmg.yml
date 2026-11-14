@@ -159,9 +159,9 @@ jobs:
           test -d "$TEST_HOME/Applications/Prophet 6 Control.app"
           printf 'y\n\n' | HOME="$TEST_HOME" bash "$MOUNT_POINT/Install.command"
           BACKUPS="$TEST_HOME/Library/Application Support/Prophet 6 Control/Backups"
-          test -d "$BACKUPS/Components/Prophet 6 Control.component"
-          test -d "$BACKUPS/VST3/Prophet 6 Control.vst3"
-          test -d "$BACKUPS/Applications/Prophet 6 Control.app"
+          find "$BACKUPS" -type d -path '*/Components/Prophet 6 Control.component' -print -quit | grep -q .
+          find "$BACKUPS" -type d -path '*/VST3/Prophet 6 Control.vst3' -print -quit | grep -q .
+          find "$BACKUPS" -type d -path '*/Applications/Prophet 6 Control.app' -print -quit | grep -q .
           rm -rf "$TEST_HOME"
 
           codesign --verify --deep --strict "$MOUNT_POINT/Audio Units/Prophet 6 Control.component"

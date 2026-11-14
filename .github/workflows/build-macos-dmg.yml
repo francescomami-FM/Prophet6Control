@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: prophet6control-v0-2-4-macos15
+  group: prophet6control-v0-2-4-macos15-rollback-check
   cancel-in-progress: false
 
 jobs:
@@ -162,8 +162,45 @@ jobs:
           find "$BACKUPS" -type d -path '*/Components/Prophet 6 Control.component' -print -quit | grep -q .
           find "$BACKUPS" -type d -path '*/VST3/Prophet 6 Control.vst3' -print -quit | grep -q .
           find "$BACKUPS" -type d -path '*/Applications/Prophet 6 Control.app' -print -quit | grep -q .
-          rm -rf "$TEST_HOME"
 
+          # Prove transaction rollback restores all three pre-existing binaries.
+          AU_BIN="$TEST_HOME/Library/Audio/Plug-Ins/Components/Prophet 6 Control.component/Contents/MacOS/Prophet 6 Control"
+          VST3_BIN="$TEST_HOME/Library/Audio/Plug-Ins/VST3/Prophet 6 Control.vst3/Contents/MacOS/Prophet 6 Control"
+          APP_BIN="$TEST_HOME/Applications/Prophet 6 Control.app/Contents/MacOS/Prophet 6 Control"
+          shasum -a 256 "$AU_BIN" "$VST3_BIN" "$APP_BIN" > "$TEST_HOME/pre-rollback.sha256"
+
+          TEST_PACKAGE="$(mktemp -d)"
+          ditto "$MOUNT_POINT" "$TEST_PACKAGE"
+          python3 - "$TEST_PACKAGE/Install.command" <<'PY'
+          from pathlib import Path
+          import sys
+          installer = Path(sys.argv[1])
+          text = installer.read_text()
+          needle = 'install_bundle "$VST3_SOURCE" "$VST3/Prophet 6 Control.vst3" "VST3"'
+          if needle not in text:
+              raise SystemExit("VST3 install line not found for rollback injection")
+          installer.write_text(text.replace(
+              needle,
+              'echo "CI injected failure after AU replacement"\\nfalse',
+              1
+          ))
+          PY
+          if printf 'y\\n' | HOME="$TEST_HOME" bash "$TEST_PACKAGE/Install.command" > "$TEST_HOME/rollback-test.log" 2>&1; then
+            echo "::error::Installer did not fail at the injected VST3 step"
+            cat "$TEST_HOME/rollback-test.log"
+            exit 1
+          fi
+          grep -q "CI injected failure after AU replacement" "$TEST_HOME/rollback-test.log"
+          shasum -a 256 --check "$TEST_HOME/pre-rollback.sha256"
+          codesign --verify --deep --strict "$TEST_HOME/Library/Audio/Plug-Ins/Components/Prophet 6 Control.component"
+          codesign --verify --deep --strict "$TEST_HOME/Library/Audio/Plug-Ins/VST3/Prophet 6 Control.vst3"
+          codesign --verify --deep --strict "$TEST_HOME/Applications/Prophet 6 Control.app"
+          rm -rf "$TEST_PACKAGE" "$TEST_HOME"
+
+          if grep -q 'xattr.*com.apple.quarantine' "$MOUNT_POINT/Install.command"; then
+            echo "::error::Installer must not strip quarantine attributes"
+            exit 1
+          fi
           codesign --verify --deep --strict "$MOUNT_POINT/Audio Units/Prophet 6 Control.component"
           codesign --verify --deep --strict "$MOUNT_POINT/VST3/Prophet 6 Control.vst3"
           codesign --verify --deep --strict "$MOUNT_POINT/Applications/Prophet 6 Control.app"

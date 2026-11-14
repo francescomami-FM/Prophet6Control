@@ -67,7 +67,7 @@ esac
 mkdir -p "$COMPONENTS" "$VST3" "$APPS"
 
 BACKUP_STAMP="$(date +%Y%m%d-%H%M%S)"
-BACKUP_ROOT="$HOME/Library/Application Support/Prophet 6 Control/Backups/$BACKUP_STAMP-$"
+BACKUP_ROOT="$HOME/Library/Application Support/Prophet 6 Control/Backups/$BACKUP_STAMP-$(/usr/bin/uuidgen)"
 
 install_bundle() {
   local source="$1"
@@ -105,10 +105,20 @@ install_bundle() {
   # These are locally built project bundles. Ad hoc signing repairs the
   # bundle resource seal; quarantine removal is limited to this installed
   # bundle because this personal development build has no notarisation ticket.
-  if ! /usr/bin/codesign --force --deep --sign - --timestamp=none "$target" \
-      || { /usr/bin/xattr -dr com.apple.quarantine "$target" 2>/dev/null || true; } \
-      || ! /usr/bin/codesign --verify --deep --strict --verbose=2 "$target"; then
-    echo "New bundle failed signing or verification: $target" >&2
+  if ! /usr/bin/codesign --force --deep --sign - --timestamp=none "$target"; then
+    echo "Could not sign the new bundle: $target" >&2
+    /bin/rm -rf "$target"
+    if [[ "$had_previous" -eq 1 ]]; then
+      /usr/bin/ditto "$backup" "$target"
+      echo "Previous version restored."
+    fi
+    return 1
+  fi
+
+  /usr/bin/xattr -dr com.apple.quarantine "$target" 2>/dev/null || true
+
+  if ! /usr/bin/codesign --verify --deep --strict --verbose=2 "$target"; then
+    echo "New bundle failed signature verification: $target" >&2
     /bin/rm -rf "$target"
     if [[ "$had_previous" -eq 1 ]]; then
       /usr/bin/ditto "$backup" "$target"
